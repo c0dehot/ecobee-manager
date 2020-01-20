@@ -83,6 +83,8 @@ async function deviceToggle( name, powerMode ){
     return response.system.set_relay_state.err_code == 0;
 }
 
+
+
 ( async ()=>{
     console.log( `-- starting --` );
 
@@ -95,6 +97,7 @@ async function deviceToggle( name, powerMode ){
     }
 
     // -- ADDING APP (with PIN method) ----------------------
+    // code is only run first time ecobee app added
     if( !settings.authCode ){
         // now we generate 4-digit PIN that the user must use to Add to 'MyApps' with permissions
         const response = await axios.get(`https://api.ecobee.com/authorize?response_type=ecobeePin&client_id=${API_KEY}&scope=smartRead`)
@@ -114,10 +117,8 @@ async function deviceToggle( name, powerMode ){
         process.exit(1);
     }
 
-    // -----------------------------------------------------
-    // now we're asking for an auth token (that will be valid one) - we use the PIN authCode that is valid one year
-
-    // POST request for the token
+    // request an access token (needed once an hour when token expires)
+    // we use the ecobee PIN above first time, then that gives us a 'refresh_token' that we use going forward
     if( !settings.access_token ){
         console.log( `~ updating access_token` );
         // attempt to use refresh_token (as the actual token expires after 1 hour)
@@ -144,8 +145,10 @@ async function deviceToggle( name, powerMode ){
         settingsSave( settings );
     }
 
-    
-// // read the sensors
+
+    // -----------------------------------------------------
+    // normal mode, as we have an access_token, we simply request for update from thermostat
+    // and read the sensor values, deciding if to turn on/off switches or send email alerts
     const url = 'https://api.ecobee.com/1/thermostat?json='+JSON.stringify(
         { selection:
             {   selectionType: "registered",
@@ -184,61 +187,64 @@ async function deviceToggle( name, powerMode ){
         process.exit(1);
     }
 
-// // good
-logWrite( "\n" + new Date().toLocaleString() );
+    logWrite( "\n" + new Date().toLocaleString() );
 
-response.data.thermostatList.forEach( thermostat => {
-    if( !thermostat.runtime.connected ){
-        logWrite( "\t! Error: Thermostat NOT connected: ${thermostat.name}\n" );
-        return;
-    }
+    response.data.thermostatList.forEach( thermostat => {
+        if( !thermostat.runtime.connected ){
+            logWrite( "\t! Error: Thermostat NOT connected: ${thermostat.name}\n" );
+            return;
+        }
 
-    const runTime = thermostat.runtime;
-    const temp = ((Number(runTime.actualTemperature) - 320) * 5/90).toFixed(1);
-    const humidity = runTime.actualHumidity;
-    logWrite( `\t${thermostat.name}: Overall temp: ${temp}℃, ${humidity}%` );
-        
-    thermostat.remoteSensors.forEach( async remoteSensor => {
-        let temp = 0; let occupancy = false;
-        remoteSensor.capability.forEach( capability => {
-            if( capability.type=='temperature' )
-                temp = ( (Number(capability.value)-320) * 5/90 ).toFixed(1);
-            else if( capability.type=='occupancy' )
-                occupancy = capability.value=="true";
-        })
-        logWrite(`\t\t - ${remoteSensor.name}: ${temp}℃` + ( occupancy ? '[*]' : '' ) );
-
-        // custom handling, expand depending on needs
-        if( remoteSensor.name=='Sunroom' ){
-            if( temp>12 && settings.device_SunroomHeater !== 'powerOff' ){
-                const powerMode = 'powerOff';
-                const result = await deviceToggle( 'SunroomHeater', powerMode );
-                if( result ){
-                    settings.device_SunroomHeater = powerMode;
-                    logWrite( `\t[deviceAction] SunroomHeater turning OFF (temp=${temp})` );
-                } else {
-                    logWrite( `\t[deviceAction] !Error: SunroomHeater *FAILED* turning off (temp=${temp}) ` );
-                }
-
-            } else if( temp<11 && settings.device_SunroomHeater !== 'powerOn' ){
-                const powerMode = 'powerOn';
-                const result = await deviceToggle( 'SunroomHeater', powerMode );
-                if( result ){
-                    settings.device_SunroomHeater = powerMode;
-                    logWrite( `\t[deviceAction] SunroomHeater turning ON (temp=${temp})` );
-                } else {
-                    logWrite( `\t[deviceAction] !Error: SunroomHeater *FAILED* turning on (temp=${temp}) ` );
-                }
-            }
-            settingsSave(settings);
+        const runTime = thermostat.runtime;
+        const temp = ((Number(runTime.actualTemperature) - 320) * 5/90).toFixed(1);
+        const humidity = runTime.actualHumidity;
+        logWrite( `\t${thermostat.name}: Overall temp: ${temp}℃, ${humidity}%` );
+            
+        thermostat.remoteSensors.forEach( async remoteSensor => {
+            let temp = 0; let occupancy = false;
+            remoteSensor.capability.forEach( capability => {
+                if( capability.type=='temperature' )
+                    temp = ( (Number(capability.value)-320) * 5/90 ).toFixed(1);
+                else if( capability.type=='occupancy' )
+                    occupancy = capability.value=="true";
+            })
+            logWrite(`\t\t - ${remoteSensor.name}: ${temp}℃` + ( occupancy ? '[*]' : '' ) );
 
             if( temp<5 ){
-                const mailResponse = await mailSend( `!Sunroom Temperature ${temp} degrees`, `Sunroom temperature ${temp} degrees: action required` );
-                logWrite( "\t\t * SUNROOM problem, sending email!\n" );
+                const mailResponse = await mailSend( 
+                    `!${remoteSensor.name} Temperature ${temp} degrees`, 
+                    `${remoteSensor.name} temperature low -> action required` );
+                logWrite( `\t\t * ${remoteSensor.name} temperature critical, sending email!\n` );
             }
-        }
-        
+
+            // ** CUSTOM HANDLING HERE ** -- add logic for your needs
+            // currently it monitors one sensor called 'Sunroom' and if it's below 11 degrees, 
+            // it will toggle a TP-Link switch called 'SunroomHeater', and turn off when above 12 degrees.
+            if( remoteSensor.name=='Sunroom' ){
+                if( temp>12 && settings.device_SunroomHeater !== 'powerOff' ){
+                    const powerMode = 'powerOff';
+                    const result = await deviceToggle( 'SunroomHeater', powerMode );
+                    if( result ){
+                        settings.device_SunroomHeater = powerMode;
+                        logWrite( `\t[deviceAction] SunroomHeater turning OFF (temp=${temp})` );
+                    } else {
+                        logWrite( `\t[deviceAction] !Error: SunroomHeater *FAILED* turning off (temp=${temp}) ` );
+                    }
+
+                } else if( temp<11 && settings.device_SunroomHeater !== 'powerOn' ){
+                    const powerMode = 'powerOn';
+                    const result = await deviceToggle( 'SunroomHeater', powerMode );
+                    if( result ){
+                        settings.device_SunroomHeater = powerMode;
+                        logWrite( `\t[deviceAction] SunroomHeater turning ON (temp=${temp})` );
+                    } else {
+                        logWrite( `\t[deviceAction] !Error: SunroomHeater *FAILED* turning on (temp=${temp}) ` );
+                    }
+                }
+                settingsSave(settings);
+            }
+            
+        })
     })
-})
 
 })();
