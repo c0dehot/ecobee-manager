@@ -223,27 +223,22 @@ async function deviceToggle( name, powerMode ){
             // currently it monitors one sensor called 'Sunroom' and if it's below 11 degrees, 
             // it will toggle a TP-Link switch called 'SunroomHeater', and turn off when above 12 degrees.
             if( remoteSensor.name=='Sunroom' ){
-                if( temp>12 && settings.device_SunroomHeater !== 'powerOff' ){
-                    const powerMode = 'powerOff';
+                let powerMode;
+                if( temp>12 && settings.device_SunroomHeater !== 'powerOff' )
+                    powerMode = 'powerOff';
+                else if( temp<11 && settings.device_SunroomHeater !== 'powerOn' )
+                    powerMode = 'powerOn';
+                
+                if( powerMode ){
                     const result = await deviceToggle( 'SunroomHeater', powerMode );
                     if( result ){
                         settings.device_SunroomHeater = powerMode;
-                        logWrite( `\t[deviceAction] SunroomHeater turning OFF (temp=${temp})` );
+                        settingsSave(settings);
+                        logWrite( `\t[deviceAction] SunroomHeater ${powerMode} (temp=${temp})` );
                     } else {
-                        logWrite( `\t[deviceAction] !Error: SunroomHeater *FAILED* turning off (temp=${temp}) ` );
-                    }
-
-                } else if( temp<11 && settings.device_SunroomHeater !== 'powerOn' ){
-                    const powerMode = 'powerOn';
-                    const result = await deviceToggle( 'SunroomHeater', powerMode );
-                    if( result ){
-                        settings.device_SunroomHeater = powerMode;
-                        logWrite( `\t[deviceAction] SunroomHeater turning ON (temp=${temp})` );
-                    } else {
-                        logWrite( `\t[deviceAction] !Error: SunroomHeater *FAILED* turning on (temp=${temp}) ` );
+                        logWrite( `\t[deviceAction] !Error: SunroomHeater *FAILED* ${powerMode} (temp=${temp}) ` );
                     }
                 }
-                settingsSave(settings);
             }
             
         })
