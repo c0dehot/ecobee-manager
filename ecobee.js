@@ -157,36 +157,39 @@ async function deviceToggle( name, powerMode ){
                 includeSensors: "true",
                 includeRuntime: "true" } });
     // console.log( `.. about to get url: header Auth(${settings.token_type} ${settings.access_token}): `, url );   
-    let response;
-    try {
-        response = await axios.get( url, {
-                headers: {
-                "Content-Type": "text/json",
-                Authorization: `${settings.token_type} ${settings.access_token}`
-                }
-            });
+    let response, statusCode;
+    let tryCnt = 3;
+    do {
+        try {
+            response = await axios.get( url, {
+                    headers: {
+                    "Content-Type": "text/json",
+                    Authorization: `${settings.token_type} ${settings.access_token}`
+                    }
+                });
 
-    } catch( error ){
-        // Error 500 happens when auth expired
-        // But the actual response is still passed back (axios puts in error.response), so we 
-        // use that and proceed accordingly.
-        console.log( `x loading url(${url}) failed: `+error.message );
-        response = error.response;
-    }
+        } catch( error ){
+            // Error 500 happens when auth expired
+            // But the actual response is still passed back (axios puts in error.response), so we 
+            // use that and proceed accordingly.
+            console.log( `x loading url(${url}) failed: `+error.message );
+            response = error.response;
+        }
 
-    const statusCode = response.data.status.code;
-    if( statusCode !== 0 ){
-        logWrite( `\t! API-Error: ${response.data.status.message} `
-            + (statusCode == 14 ? `; cleared access_token for retry...` : '' ) );
-
-        if( statusCode == 14 ){
+        statusCode = response.data.status.code;
+        if( statusCode !== 0 ){
             // expired auth token, clearing so we get another
             delete( settings.access_token );
             settingsSave( settings );
         }
-        // exit as auth error, cleared token will try again next time
+    } while( --tryCnt>0 && statusCode !==0 );
+
+    if( statusCode !== 0 ){
+        logWrite( `\t! API-Error: ${response.data.status.message} `
+        + (statusCode == 14 ? `; (stale access_token)` : '' ) );
         process.exit(1);
     }
+    
 
     logWrite( "\n" + new Date().toLocaleString() );
 
