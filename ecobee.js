@@ -23,6 +23,7 @@ const uuidV4 = require("uuid/v4");
 
 /* SETTINGS (from .env file) ------ read sensor data and alert when it's out of scope */
 const API_KEY       = process.env.API_KEY;
+const ALERTS_EMAIL  = process.env.ALERTS_EMAIL;
 const SMTP_LOGIN    = process.env.SMTP_LOGIN;
 const SMTP_PASS     = process.env.SMTP_PASS;
 const SETTINGS_FILE = __dirname + process.env.SETTINGS_FILE;
@@ -53,7 +54,7 @@ function mailSend( subject, text ){
         // Message object
         let message = {
             // Comma separated list of recipients
-            to: `Alerter <${SMTP_LOGIN}>`,
+            to: `Alert <${ALERTS_EMAIL}>`,
             subject, text
         };
 
@@ -191,7 +192,7 @@ async function deviceToggle( name, powerMode ){
 
     response.data.thermostatList.forEach( thermostat => {
         if( !thermostat.runtime.connected ){
-            logWrite( "\t! Error: Thermostat NOT connected: ${thermostat.name}\n" );
+            logWrite( `\t! Thermostat NOT connected currently: ${thermostat.name}\n` );
             return;
         }
 
@@ -210,7 +211,8 @@ async function deviceToggle( name, powerMode ){
             })
             logWrite(`\t\t - ${remoteSensor.name}: ${temp}℃` + ( occupancy ? '[*]' : '' ) );
 
-            if( temp<5 ){
+            // Monitor temperature for some rooms and alert
+            if( temp<5 && ['Sunroom','Downstairs'].find( name=>name===remoteSensor.name ) ){
                 const mailResponse = await mailSend( 
                     `!${remoteSensor.name} Temperature ${temp} degrees`, 
                     `${remoteSensor.name} temperature low -> action required` );
