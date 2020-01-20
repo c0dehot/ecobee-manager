@@ -14,6 +14,7 @@ You need to create a .env file with the logins to your ecobee web login, and if 
 
 .env FILE:
 ```
+ALERTS_EMAIL=codefreeze8@gmail.com (your email to receive email alerts)
 API_KEY=(api key from ecobee developer portal)
 SMTP_LOGIN=(ex. gmail login)
 SMTP_PASS=(ex. gmail pass)
