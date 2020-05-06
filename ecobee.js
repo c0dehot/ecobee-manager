@@ -176,7 +176,7 @@ async function appRun( retryOnError=true ) {
         // use that and proceed accordingly.
 
         // check when last error happened, if it was within 33 minutes, then let's send message
-        let errorData = fs.existsSync(ERROR_FILE ? JSON.parse( fs.readFileSync( ERROR_FILE ) ) : {};
+        let errorData = fs.existsSync(ERROR_FILE) ? JSON.parse( fs.readFileSync( ERROR_FILE ) ) : {};
         
         const NOW = Date.now() / 1000;
         if( (NOW-errorData.timestamp)>2000 ){
