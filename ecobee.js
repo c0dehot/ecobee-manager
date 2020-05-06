@@ -34,9 +34,22 @@ const TPLINK_USER   = process.env.TPLINK_USER;
 const TPLINK_PASS   = process.env.TPLINK_PASS;
 const TPLINK_TERM   = uuidV4();
 
-function logWrite( output ){
+function logWrite( output, type='' ){
     fs.appendFileSync( LOG_FILE, output+"\n" );
-    console.log( output );
+
+    // no notification, don't bother console.logging (that generates an email notify)
+    if( type.indexOf('notify') === -1 ) return;
+
+    // check when last error happened, if it was within 33 minutes, then let's send message
+    let lastTimestamp = fs.existsSync(ERROR_FILE) ? fs.readFileSync( ERROR_FILE ) : 0;
+    const NOW = Date.now() / 1000;
+    if( type === 'always-notify' || (NOW-errorData.timestamp)>2000 ){
+        // update it
+        lastTimestamp = NOW; 
+        fs.writeFileSync( ERROR_FILE, lastTimestamp );
+    
+        console.log( output );
+    }
 }
 
 function settingsSave( settings={} ){
@@ -122,7 +135,6 @@ async function appRun( retryOnError=true ) {
     // request an access token (needed once an hour when token expires)
     // we use the ecobee PIN above first time, then that gives us a 'refresh_token' that we use going forward
     if( !settings.access_token ){
-        console.log( `~ updating access_token` );
         // attempt to use refresh_token (as the actual token expires after 1 hour)
         const response = await axios.post( `https://api.ecobee.com/token`,
                 `client_id=${API_KEY}&` +( settings.refresh_token ? 
@@ -130,7 +142,7 @@ async function appRun( retryOnError=true ) {
                     `grant_type=ecobeePin&code=${settings.authCode}` ) );
                 
         if( response.data.error ){
-            logWrite( `~ ERROR: {$jsonResult['error_description']}` );
+            logWrite( `~ ERROR: {$jsonResult['error_description']}`, 'notify' );
 
             if( response.data.error=='authorization_expired' )
                 delete( settings.authCode );
@@ -174,29 +186,14 @@ async function appRun( retryOnError=true ) {
         // Error 500 happens when auth expired
         // But the actual response is still passed back (axios puts in error.response), so we 
         // use that and proceed accordingly.
-
-        // check when last error happened, if it was within 33 minutes, then let's send message
-        let errorData = fs.existsSync(ERROR_FILE) ? JSON.parse( fs.readFileSync( ERROR_FILE ) ) : {};
-        
-        const NOW = Date.now() / 1000;
-        if( (NOW-errorData.timestamp)>2000 ){
-            // update it
-            errorData = { 
-                timestamp: NOW, 
-                code: ( response.data && response.data.status && response.data.status.code ? response.data.status.code : 0 ),
-                url: url, 
-                message: error.message }
-
-            fs.writeFileSync( ERROR_FILE, JSON.stringify(errorData) );
-            console.log( `x loading url(${url}) failed: `+error.message );
-        }
+        logWrite( `~ API-Call-Error: ${url} message: `+error.message, 'notify' );
 
         response = error.response;
     }
 
     if( statusCode !== 0 ){
         logWrite( `~ API-Error: ${response.data.status.message} `
-        + (statusCode == 14 ? `; (stale access_token)` : '' ) );
+        + (statusCode == 14 ? `; (stale access_token)` : '' ), 'notify' );
 
         // expired auth token, clearing so we get another
         delete( settings.access_token );
@@ -255,7 +252,7 @@ async function appRun( retryOnError=true ) {
                         settingsSave(settings);
                         logWrite( `\t[deviceAction] SunroomHeater ${powerMode} (temp=${temp})` );
                     } else {
-                        logWrite( `\t[deviceAction] !Error: SunroomHeater *FAILED* ${powerMode} (temp=${temp}) ` );
+                        logWrite( `\t[deviceAction] !Error: SunroomHeater *FAILED* ${powerMode} (temp=${temp}) `, 'always-notify' );
                     }
                 }
             }
