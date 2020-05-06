@@ -40,10 +40,10 @@ function logWrite( output, type='' ){
     // no notification, don't bother console.logging (that generates an email notify)
     if( type.indexOf('notify') === -1 ) return;
 
-    // check when last error happened, if it was within 66 minutes, then let's send message
+    // check when last error happened, if it was within 75 minutes, then let's send message
     let lastTimestamp = Number(fs.existsSync(ERROR_FILE) ? fs.readFileSync( ERROR_FILE ) : 0);
-    const NOW = Date.now() / 1000;
-    if( type === 'always-notify' || (NOW-lastTimestamp)>4000 ){
+    const NOW = Date.now() / 1000 / 60;
+    if( type === 'always-notify' || (NOW-lastTimestamp)>75 ){
         // update it
         lastTimestamp = NOW; 
         fs.writeFileSync( ERROR_FILE, lastTimestamp );
