@@ -28,6 +28,7 @@ const SMTP_LOGIN    = process.env.SMTP_LOGIN;
 const SMTP_PASS     = process.env.SMTP_PASS;
 const SETTINGS_FILE = __dirname + process.env.SETTINGS_FILE;
 const LOG_FILE      = __dirname + process.env.LOG_FILE;
+const ERROR_FILE    = __dirname + process.env.ERROR_FILE;
 const TPLINK_USER   = process.env.TPLINK_USER;
 const TPLINK_PASS   = process.env.TPLINK_PASS;
 const TPLINK_TERM   = uuidV4();
@@ -86,9 +87,8 @@ async function deviceToggle( name, powerMode ){
 
 
 
-( async ()=>{
-    console.log( `-- starting --` );
-
+async function appRun( retryOnError=true ) {
+    const LAST_RETRY = false;
     let settings = {};
     try { 
         settings = JSON.parse( fs.readFileSync( SETTINGS_FILE ) );
@@ -129,15 +129,16 @@ async function deviceToggle( name, powerMode ){
                     `grant_type=ecobeePin&code=${settings.authCode}` ) );
                 
         if( response.data.error ){
-            logWrite( "ERROR: {$jsonResult['error_description']}\n" );
+            logWrite( `~ ERROR: {$jsonResult['error_description']}` );
 
             if( response.data.error=='authorization_expired' )
                 delete( settings.authCode );
             else
                 delete( settings.access_token );
-
             settingsSave(settings);  
-            // exit, and lets try login next time this app- runs              
+
+            // let's recursively retry ONCE (second recursion is retryOnError=false)
+            if( retryOnError ) appRun(LAST_RETRY);
             process.exit(1);
         }
 
@@ -158,44 +159,57 @@ async function deviceToggle( name, powerMode ){
                 includeRuntime: "true" } });
     // console.log( `.. about to get url: header Auth(${settings.token_type} ${settings.access_token}): `, url );   
     let response, statusCode;
-    let tryCnt = 3;
-    do {
-        try {
-            response = await axios.get( url, {
-                    headers: {
-                    "Content-Type": "text/json",
-                    Authorization: `${settings.token_type} ${settings.access_token}`
-                    }
-                });
-
-        } catch( error ){
-            // Error 500 happens when auth expired
-            // But the actual response is still passed back (axios puts in error.response), so we 
-            // use that and proceed accordingly.
-            console.log( `x loading url(${url}) failed: `+error.message );
-            response = error.response;
-        }
+    try {
+        response = await axios.get( url, {
+                headers: {
+                "Content-Type": "text/json",
+                Authorization: `${settings.token_type} ${settings.access_token}`
+                }
+            });
 
         statusCode = response.data.status.code;
-        if( statusCode !== 0 ){
-            // expired auth token, clearing so we get another
-            delete( settings.access_token );
-            settingsSave( settings );
+
+    } catch( error ){
+        // Error 500 happens when auth expired
+        // But the actual response is still passed back (axios puts in error.response), so we 
+        // use that and proceed accordingly.
+
+        // check when last error happened, if it was within 33 minutes, then let's send message
+        let errorData = JSON.parse( fs.readFileSync( ERROR_FILE ) );
+        const NOW = Date.now() / 1000;
+        if( (NOW-errorData.timestamp)>2000 ){
+            // update it
+            errorData = { 
+                timestamp: NOW, 
+                code: ( response.data && response.data.status && response.data.status.code ? response.data.status.code : 0 ),
+                url: url, 
+                message: error.message }
+
+            fs.writeFileSync( ERROR_FILE, JSON.stringify(errorData) );
+            console.log( `x loading url(${url}) failed: `+error.message );
         }
-    } while( --tryCnt>0 && statusCode !==0 );
+
+        response = error.response;
+    }
 
     if( statusCode !== 0 ){
-        logWrite( `\t! API-Error: ${response.data.status.message} `
+        logWrite( `~ API-Error: ${response.data.status.message} `
         + (statusCode == 14 ? `; (stale access_token)` : '' ) );
+
+        // expired auth token, clearing so we get another
+        delete( settings.access_token );
+        settingsSave( settings );
+
+        // retry with cleared access token, and fail after that if still errors
+        if( retryOnError ) appRun(LAST_RETRY);
         process.exit(1);
     }
-    
 
     logWrite( "\n" + new Date().toLocaleString() );
 
     response.data.thermostatList.forEach( thermostat => {
         if( !thermostat.runtime.connected ){
-            logWrite( `\t! Thermostat NOT connected currently: ${thermostat.name}\n` );
+            logWrite( `\t! Thermostat NOT connected currently: ${thermostat.name}` );
             return;
         }
 
@@ -219,7 +233,7 @@ async function deviceToggle( name, powerMode ){
                 const mailResponse = await mailSend( 
                     `!${remoteSensor.name} Temperature ${temp} degrees`, 
                     `${remoteSensor.name} temperature low -> action required` );
-                logWrite( `\t\t * ${remoteSensor.name} temperature critical, sending email!\n` );
+                logWrite( `\t\t * WARNING ${remoteSensor.name} temperature critical, sending email!\n` );
             }
 
             // ** CUSTOM HANDLING HERE ** -- add logic for your needs
@@ -246,5 +260,6 @@ async function deviceToggle( name, powerMode ){
             
         })
     })
+}
 
-})();
+appRun();
