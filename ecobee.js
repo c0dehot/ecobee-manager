@@ -41,9 +41,9 @@ function logWrite( output, type='' ){
     if( type.indexOf('notify') === -1 ) return;
 
     // check when last error happened, if it was within 33 minutes, then let's send message
-    let lastTimestamp = fs.existsSync(ERROR_FILE) ? fs.readFileSync( ERROR_FILE ) : 0;
+    let lastTimestamp = Number(fs.existsSync(ERROR_FILE) ? fs.readFileSync( ERROR_FILE ) : 0);
     const NOW = Date.now() / 1000;
-    if( type === 'always-notify' || (NOW-errorData.timestamp)>2000 ){
+    if( type === 'always-notify' || (NOW-lastTimestamp)>2000 ){
         // update it
         lastTimestamp = NOW; 
         fs.writeFileSync( ERROR_FILE, lastTimestamp );
@@ -232,7 +232,7 @@ async function appRun( retryOnError=true ) {
                 const mailResponse = await mailSend( 
                     `!${remoteSensor.name} Temperature ${temp} degrees`, 
                     `${remoteSensor.name} temperature low -> action required` );
-                logWrite( `\t\t * WARNING ${remoteSensor.name} temperature critical, sending email!\n` );
+                logWrite( `\t\t * WARNING ${remoteSensor.name} temperature critical, sending email!\n`, 'always-send' );
             }
 
             // ** CUSTOM HANDLING HERE ** -- add logic for your needs
