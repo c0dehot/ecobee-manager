@@ -1,5 +1,6 @@
 /*************************************************
  * Written 18 Jan, 2020 by Filipe Laborde
+ * Updated 6 May, 2020
  * 
  * Open-source, MIT license - use as you wish.
  * 
@@ -175,7 +176,8 @@ async function appRun( retryOnError=true ) {
         // use that and proceed accordingly.
 
         // check when last error happened, if it was within 33 minutes, then let's send message
-        let errorData = JSON.parse( fs.readFileSync( ERROR_FILE ) );
+        let errorData = fs.existsSync(ERROR_FILE ? JSON.parse( fs.readFileSync( ERROR_FILE ) ) : {};
+        
         const NOW = Date.now() / 1000;
         if( (NOW-errorData.timestamp)>2000 ){
             // update it
