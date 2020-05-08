@@ -43,13 +43,11 @@ function logWrite( output, type='' ){
     // check when last error happened, if it was within 75 minutes, then let's send message
     let lastTimestamp = Number(fs.existsSync(ERROR_FILE) ? fs.readFileSync( ERROR_FILE ) : 0);
     const NOW = Date.now() / 1000 / 60;
-    if( type === 'always-notify' || (NOW-lastTimestamp)>75 ){
-        // update it
-        lastTimestamp = NOW; 
-        fs.writeFileSync( ERROR_FILE, lastTimestamp );
-    
+    if( type === 'always-notify' || (NOW-lastTimestamp)>75 ){    
         console.log( output );
     }
+    // update error notify timestamp
+    fs.writeFileSync( ERROR_FILE, NOW );
 }
 
 function settingsSave( settings={} ){
