@@ -97,6 +97,16 @@ async function deviceToggle( name, powerMode ){
     return response.system.set_relay_state.err_code == 0;
 }
 
+async function deviceCheck( name ){
+    // log in to cloud, return a connected tplink object
+    const tplink = await login(TPLINK_USER, TPLINK_PASS, TPLINK_TERM);
+    
+    // get a list of raw json objects (must be invoked before .get* works)
+    const dl = await tplink.getDeviceList();
+    
+    const device = tplink.getHS110(name); 
+    return device.getRelayState()
+}
 
 
 async function appRun( retryOnError=true ) {
@@ -231,6 +241,7 @@ async function appRun( retryOnError=true ) {
                     `!${remoteSensor.name} Temperature ${temp} degrees`, 
                     `${remoteSensor.name} temperature low -> action required` );
                 logWrite( `\t\t * WARNING ${remoteSensor.name} temperature critical, sending email!\n`, 'always-send' );
+                // send a text message too?
             }
 
             // ** CUSTOM HANDLING HERE ** -- add logic for your needs
@@ -238,6 +249,20 @@ async function appRun( retryOnError=true ) {
             // it will toggle a TP-Link switch called 'SunroomHeater', and turn off when above 12 degrees.
             if( remoteSensor.name=='Sunroom' ){
                 let powerMode;
+                // every hour check the actual device status to make sure it's matching our settings copy
+                if( (new Date().getMinutes())<10 ){
+                    const verifyPowerMode = await deviceCheck( 'SunroomHeater' )
+                    if( settings.device_SunroomHeater === 'powerOff' && verifyPowerMode==1 ){
+                        // problems, device marked as off, yet check indicated it was on
+                        settings.device_SunroomHeater = 'powerOn';
+                        logWrite( `\t[deviceAction] !Error: SunroomHeater *ERROR* indicated as 'powerOff' but relay was on, indicating ON`, 'always-notify' );
+
+                    } else if( settings.device_SunroomHeater === 'powerOn' && verifyPowerMode==0 ){
+                        settings.device_SunroomHeater = 'powerOff';
+                        logWrite( `\t[deviceAction] !Error: SunroomHeater *ERROR* indicated as 'powerOn' but relay was off, indicating OFF`, 'always-notify' );
+                    }
+                } 
+
                 if( temp>12 && settings.device_SunroomHeater !== 'powerOff' )
                     powerMode = 'powerOff';
                 else if( temp<11 && settings.device_SunroomHeater !== 'powerOn' )
