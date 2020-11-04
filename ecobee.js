@@ -1,6 +1,6 @@
 /*************************************************
  * Written 18 Jan, 2020 by Filipe Laborde
- * Updated 6 May, 2020
+ * Updated 4 Nov, 2020
  * 
  * Open-source, MIT license - use as you wish.
  * 
