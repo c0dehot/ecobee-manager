@@ -226,17 +226,17 @@ async function appRun( retryOnError=true ) {
         logWrite( `\t${thermostat.name}: Overall temp: ${temp}℃, ${humidity}%` );
             
         thermostat.remoteSensors.forEach( async remoteSensor => {
-            let temp = 0; let occupancy = false;
+            let temp = 0; let occupancy = false; let sensorPlug = ''; let sensorWarning = '';
             remoteSensor.capability.forEach( capability => {
                 if( capability.type=='temperature' )
                     temp = ( (Number(capability.value)-320) * 5/90 ).toFixed(1);
                 else if( capability.type=='occupancy' )
                     occupancy = capability.value=="true";
             })
-            logWrite(`\t\t - ${remoteSensor.name}: ${temp}℃` + ( occupancy ? '[*]' : '' ) );
 
             // Monitor temperature for some rooms and alert
             if( temp<5 && ['Sunroom','Downstairs'].find( name=>name===remoteSensor.name ) ){
+                sensorWarning = '!!(temp critical)';
                 const mailResponse = await mailSend( 
                     `!${remoteSensor.name} Temperature ${temp} degrees`, 
                     `${remoteSensor.name} temperature low -> action required` );
@@ -278,7 +278,11 @@ async function appRun( retryOnError=true ) {
                         logWrite( `\t[deviceAction] !Error: SunroomHeater *FAILED* ${powerMode} (temp=${temp}) `, 'always-notify' );
                     }
                 }
+
+                // plugMode will indicate if heater on
+                sensorPlug = settings.device_SunroomHeater === 'powerOn' ? '[+] ' : ''
             }
+            logWrite(`\t\t - ${remoteSensor.name}: ${temp}℃ ${sensorPlug}${occupancy?'[*]':''} ${sensorWarning}` );
             
         })
     })
